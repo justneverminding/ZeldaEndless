@@ -167,13 +167,15 @@ function RunnerController({ active, commands, onDistance, playerZRef }: { active
   const shadowRef = useRef<Group | null>(null)
   const lane = useRef(1)
   const laneX = useRef(0)
+  const laneStartX = useRef(0)
+  const laneTargetX = useRef(0)
+  const laneElapsed = useRef(-1)
   const distance = useRef(0)
   const reportedDistance = useRef(-1)
   const jumpElapsed = useRef(-1)
   const slideElapsed = useRef(-1)
   const slideAvailableAt = useRef(0)
   const activeRef = useRef(active)
-  const cooldownUntil = useRef(0)
   const runCycle = useRef(0)
   const runFrame = useRef(0)
   const animationState = useRef<RunnerAnimationState>('IDLE')
@@ -189,19 +191,23 @@ function RunnerController({ active, commands, onDistance, playerZRef }: { active
   useEffect(() => {
     commands.current = {
       moveLeft: () => {
-        if (activeRef.current && performance.now() >= cooldownUntil.current && lane.current > 0 && jumpElapsed.current < 0 && slideElapsed.current < 0) {
+        if (activeRef.current && laneElapsed.current < 0 && lane.current > 0 && jumpElapsed.current < 0 && slideElapsed.current < 0) {
           lane.current -= 1
+          laneStartX.current = laneX.current
+          laneTargetX.current = (lane.current - 1) * RUNNER_CONFIG.laneOffset
+          laneElapsed.current = 0
           laneState.current = 'LANE_LEFT'
           animationState.current = 'LANE_LEFT'
-          cooldownUntil.current = performance.now() + RUNNER_CONFIG.inputCooldown * 1000
         }
       },
       moveRight: () => {
-        if (activeRef.current && performance.now() >= cooldownUntil.current && lane.current < 2 && jumpElapsed.current < 0 && slideElapsed.current < 0) {
+        if (activeRef.current && laneElapsed.current < 0 && lane.current < 2 && jumpElapsed.current < 0 && slideElapsed.current < 0) {
           lane.current += 1
+          laneStartX.current = laneX.current
+          laneTargetX.current = (lane.current - 1) * RUNNER_CONFIG.laneOffset
+          laneElapsed.current = 0
           laneState.current = 'LANE_RIGHT'
           animationState.current = 'LANE_RIGHT'
-          cooldownUntil.current = performance.now() + RUNNER_CONFIG.inputCooldown * 1000
         }
       },
       jump: () => {
@@ -225,8 +231,13 @@ function RunnerController({ active, commands, onDistance, playerZRef }: { active
     if (!active) return
     distance.current += RUNNER_CONFIG.runSpeed * delta
     playerZRef.current -= RUNNER_CONFIG.runSpeed * delta
-    const targetX = (lane.current - 1) * RUNNER_CONFIG.laneOffset
-    laneX.current += (targetX - laneX.current) * Math.min(1, delta * RUNNER_CONFIG.laneChangeSpeed)
+    if (laneElapsed.current >= 0) {
+      laneElapsed.current += delta
+      const t = Math.min(1, laneElapsed.current / RUNNER_CONFIG.laneChangeDuration)
+      const easedT = 1 - Math.pow(1 - t, 3)
+      laneX.current = laneStartX.current + (laneTargetX.current - laneStartX.current) * easedT
+      if (t >= 1) laneElapsed.current = -1
+    }
     let jumpY = 0
     if (jumpElapsed.current >= 0) {
       jumpElapsed.current += delta
@@ -239,7 +250,7 @@ function RunnerController({ active, commands, onDistance, playerZRef }: { active
       if (slideElapsed.current / RUNNER_CONFIG.slideDuration >= 1) slideElapsed.current = -1
     }
     const isSliding = slideElapsed.current >= 0
-    const laneIsMoving = Math.abs(laneX.current - targetX) > .02
+    const laneIsMoving = laneElapsed.current >= 0
     if (!laneIsMoving) laneState.current = null
     // Priority: JUMP > SLIDE > lane change > RUN. Inputs and motion share this controller.
     animationState.current = jumpElapsed.current >= 0 ? 'JUMP' : isSliding ? 'SLIDE' : laneIsMoving && laneState.current ? laneState.current : 'RUN'
@@ -259,11 +270,10 @@ function RunnerController({ active, commands, onDistance, playerZRef }: { active
     if (visualRef.current) {
       const rhythmX = hasRunRhythm ? runRhythm * RUNNER_CONFIG.runAnimationSway : 0
       const rhythmTilt = hasRunRhythm ? runRhythm * RUNNER_CONFIG.runAnimationTilt : 0
-      const strideScale = hasRunRhythm ? strideLift * RUNNER_CONFIG.runAnimationStrideScale : 0
-      // The pose is bottom-center anchored, so this compression and lift read as
-      // alternating strides without changing the gameplay collision footprint.
+      // Keep the character's dimensions fixed across run frames. The animation
+      // comes from the frame loop, not a scale pulse that can read as a zoom.
       visualRef.current.position.set(laneX.current + rhythmX, jumpY + runBob, playerZRef.current)
-      visualRef.current.scale.set(RUNNER_CONFIG.characterScale * 1.08 + strideScale, RUNNER_CONFIG.characterScale - strideScale * .55, 1)
+      visualRef.current.scale.set(RUNNER_CONFIG.characterScale * 1.08, RUNNER_CONFIG.characterScale, 1)
       visualRef.current.rotation.set(isSliding ? .06 : 0, hasRunRhythm ? runRhythm * .018 : 0, animationState.current === 'LANE_LEFT' ? .045 : animationState.current === 'LANE_RIGHT' ? -.045 : rhythmTilt)
     }
     if (shadowRef.current) {
@@ -271,10 +281,11 @@ function RunnerController({ active, commands, onDistance, playerZRef }: { active
       const shadowScale = 1 - (hasRunRhythm ? strideLift * RUNNER_CONFIG.runAnimationShadowPulse : 0) - jumpY * .1
       shadowRef.current.scale.set(Math.max(.62, shadowScale), Math.max(.62, shadowScale), 1)
     }
-    const smooth = Math.min(1, delta * RUNNER_CONFIG.cameraSmoothing)
-    camera.position.x += (laneX.current - camera.position.x) * smooth
-    camera.position.z += (playerZRef.current + 7.15 - camera.position.z) * smooth
-    target.set(laneX.current, .72 + jumpY * .08, playerZRef.current - 19.65)
+    // Fixed player-relative camera offset prevents an apparent zoom as the
+    // runner advances through the recycled environment.
+    const cameraLaneX = laneX.current * RUNNER_CONFIG.cameraLaneFollow
+    camera.position.set(cameraLaneX, 4.15, playerZRef.current + 7.15)
+    target.set(cameraLaneX, .72 + jumpY * .08, playerZRef.current - 19.65)
     camera.lookAt(target)
     const nextDistance = Math.floor(distance.current)
     if (nextDistance !== reportedDistance.current) { reportedDistance.current = nextDistance; onDistance(nextDistance) }
