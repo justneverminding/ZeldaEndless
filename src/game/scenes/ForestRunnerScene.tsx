@@ -1,7 +1,14 @@
 import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber'
 import { Suspense, useEffect, useMemo, useRef, type MutableRefObject } from 'react'
-import { BackSide, CatmullRomCurve3, Color, Group, SRGBColorSpace, TextureLoader, Vector3 } from 'three'
-import zeldaRear from '../../../assets/characters/zelda/runtime/zelda-rear-hero-v2.png'
+import { BackSide, CatmullRomCurve3, Color, Group, Mesh, SRGBColorSpace, TextureLoader, Vector3 } from 'three'
+import zeldaIdle from '../../../assets/characters/zelda/runtime/zelda-rear-hero-v2.png'
+import zeldaRun01 from '../../../assets/characters/zelda/runtime/gameplay/run-cycle/zelda-run-01.png'
+import zeldaRun02 from '../../../assets/characters/zelda/runtime/gameplay/run-cycle/zelda-run-02.png'
+import zeldaRun03 from '../../../assets/characters/zelda/runtime/gameplay/run-cycle/zelda-run-03.png'
+import zeldaRun04 from '../../../assets/characters/zelda/runtime/gameplay/run-cycle/zelda-run-04.png'
+import zeldaJump from '../../../assets/characters/zelda/runtime/gameplay/zelda-jump.png'
+import zeldaSlide from '../../../assets/characters/zelda/runtime/gameplay/zelda-slide.png'
+import zeldaLaneChange from '../../../assets/characters/zelda/runtime/gameplay/zelda-lane-change.png'
 import treeCard from '../../../assets/environments/whispering-forest/runtime/ancient-tree-billboard-v2.png'
 import { FOREST_RUN_SEGMENTS, FOREST_SEGMENT_LENGTH, VISIBLE_SEGMENTS_AHEAD, type ForestRunSegment } from '../world/forestSegments'
 import { RUNNER_CONFIG } from '../config/gameConfig'
@@ -15,10 +22,44 @@ function RunnerCamera() {
   return null
 }
 
-function ZeldaBillboard({ visualRef, shadowRef }: { visualRef: MutableRefObject<Group | null>; shadowRef: MutableRefObject<Group | null> }) {
-  const texture = useLoader(TextureLoader, zeldaRear)
-  useEffect(() => { texture.colorSpace = SRGBColorSpace; texture.needsUpdate = true }, [texture])
-  return <><group ref={shadowRef}><mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .025, 0]} scale={[1.4, .44, 1]}><circleGeometry args={[1, 32]} /><meshBasicMaterial color="#0a1611" transparent opacity={.42} depthWrite={false} /></mesh></group><group ref={visualRef}><mesh position={[0, 2.28, 0]}><planeGeometry args={[3.04, 4.56]} /><meshBasicMaterial map={texture} transparent alphaTest={.02} depthWrite={false} toneMapped={false} /></mesh></group></>
+type RunnerAnimationState = 'IDLE' | 'RUN' | 'JUMP' | 'SLIDE' | 'LANE_LEFT' | 'LANE_RIGHT'
+
+const ZELDA_RUN_FRAMES = [zeldaRun01, zeldaRun02, zeldaRun03, zeldaRun04] as const
+const ZELDA_MOTION_TEXTURES = {
+  IDLE: zeldaIdle,
+  JUMP: zeldaJump,
+  SLIDE: zeldaSlide,
+  LANE_LEFT: zeldaLaneChange,
+  LANE_RIGHT: zeldaLaneChange,
+} as const
+
+// Every pose is attached at bottom-center. The wide slide source is deliberately
+// rendered in a shorter frame so her boots keep the same ground anchor as RUN.
+const ZELDA_MOTION_FRAMES: Record<RunnerAnimationState, { width: number; height: number }> = {
+  IDLE: { width: 3.04, height: 4.56 },
+  RUN: { width: 3.04, height: 4.56 },
+  JUMP: { width: 3.04, height: 4.56 },
+  SLIDE: { width: 4.56, height: 3.04 },
+  LANE_LEFT: { width: 3.04, height: 4.56 },
+  LANE_RIGHT: { width: 3.04, height: 4.56 },
+}
+
+function ZeldaBillboard({ visualRef, shadowRef, animationStateRef, runFrameRef }: { visualRef: MutableRefObject<Group | null>; shadowRef: MutableRefObject<Group | null>; animationStateRef: MutableRefObject<RunnerAnimationState>; runFrameRef: MutableRefObject<number> }) {
+  const textures = useLoader(TextureLoader, [...ZELDA_RUN_FRAMES, ...Object.values(ZELDA_MOTION_TEXTURES)])
+  const poseRefs = useRef<Mesh[]>([])
+  useEffect(() => { textures.forEach(texture => { texture.colorSpace = SRGBColorSpace; texture.needsUpdate = true }) }, [textures])
+  useFrame(() => {
+    const activePose = animationStateRef.current
+    poseRefs.current.forEach((mesh, index) => {
+      const isRunFrame = index < ZELDA_RUN_FRAMES.length
+      mesh.visible = isRunFrame ? activePose === 'RUN' && index === runFrameRef.current : activePose === (Object.keys(ZELDA_MOTION_TEXTURES) as RunnerAnimationState[])[index - ZELDA_RUN_FRAMES.length]
+    })
+  })
+  const meshStates = [...Array(ZELDA_RUN_FRAMES.length).fill('RUN'), ...Object.keys(ZELDA_MOTION_TEXTURES)] as RunnerAnimationState[]
+  return <><group ref={shadowRef}><mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .025, 0]} scale={[1.4, .44, 1]}><circleGeometry args={[1, 32]} /><meshBasicMaterial color="#0a1611" transparent opacity={.42} depthWrite={false} /></mesh></group><group ref={visualRef}>{meshStates.map((state, index) => {
+    const frame = ZELDA_MOTION_FRAMES[state]
+    return <mesh key={`${state}-${index}`} ref={node => { if (node) poseRefs.current[index] = node }} visible={false} position={[0, frame.height / 2, 0]}><planeGeometry args={[frame.width, frame.height]} /><meshBasicMaterial map={textures[index]} transparent alphaTest={.02} depthWrite={false} toneMapped={false} /></mesh>
+  })}</group></>
 }
 
 function ForestCard({ x, z, scale = 1 }: { x: number; z: number; scale?: number }) {
@@ -120,8 +161,6 @@ function DistantWorld({ playerZRef }: { playerZRef: MutableRefObject<number> }) 
   </group>
 }
 
-type RunnerAnimationState = 'IDLE' | 'RUN' | 'JUMP' | 'SLIDE' | 'LANE_CHANGE'
-
 function RunnerController({ active, commands, onDistance, playerZRef }: { active: boolean; commands: MutableRefObject<RunnerCommands | null>; onDistance: (distance: number) => void; playerZRef: MutableRefObject<number> }) {
   const { camera } = useThree()
   const visualRef = useRef<Group | null>(null)
@@ -136,17 +175,48 @@ function RunnerController({ active, commands, onDistance, playerZRef }: { active
   const activeRef = useRef(active)
   const cooldownUntil = useRef(0)
   const runCycle = useRef(0)
+  const runFrame = useRef(0)
   const animationState = useRef<RunnerAnimationState>('IDLE')
+  const laneState = useRef<'LANE_LEFT' | 'LANE_RIGHT' | null>(null)
+  const lastRunStep = useRef(-1)
   const target = useMemo(() => new Vector3(), [])
 
-  useEffect(() => { activeRef.current = active }, [active])
+  useEffect(() => {
+    activeRef.current = active
+    if (active && animationState.current === 'IDLE') animationState.current = 'RUN'
+  }, [active])
 
   useEffect(() => {
     commands.current = {
-      moveLeft: () => { if (activeRef.current && performance.now() >= cooldownUntil.current && lane.current > 0) { lane.current -= 1; cooldownUntil.current = performance.now() + RUNNER_CONFIG.inputCooldown * 1000 } },
-      moveRight: () => { if (activeRef.current && performance.now() >= cooldownUntil.current && lane.current < 2) { lane.current += 1; cooldownUntil.current = performance.now() + RUNNER_CONFIG.inputCooldown * 1000 } },
-      jump: () => { if (activeRef.current && jumpElapsed.current < 0 && slideElapsed.current < 0) jumpElapsed.current = 0 },
-      slide: () => { if (activeRef.current && jumpElapsed.current < 0 && slideElapsed.current < 0 && performance.now() >= slideAvailableAt.current) { slideElapsed.current = 0; slideAvailableAt.current = performance.now() + RUNNER_CONFIG.slideCooldown * 1000 } },
+      moveLeft: () => {
+        if (activeRef.current && performance.now() >= cooldownUntil.current && lane.current > 0 && jumpElapsed.current < 0 && slideElapsed.current < 0) {
+          lane.current -= 1
+          laneState.current = 'LANE_LEFT'
+          animationState.current = 'LANE_LEFT'
+          cooldownUntil.current = performance.now() + RUNNER_CONFIG.inputCooldown * 1000
+        }
+      },
+      moveRight: () => {
+        if (activeRef.current && performance.now() >= cooldownUntil.current && lane.current < 2 && jumpElapsed.current < 0 && slideElapsed.current < 0) {
+          lane.current += 1
+          laneState.current = 'LANE_RIGHT'
+          animationState.current = 'LANE_RIGHT'
+          cooldownUntil.current = performance.now() + RUNNER_CONFIG.inputCooldown * 1000
+        }
+      },
+      jump: () => {
+        if (activeRef.current && jumpElapsed.current < 0 && slideElapsed.current < 0) {
+          jumpElapsed.current = 0
+          animationState.current = 'JUMP'
+        }
+      },
+      slide: () => {
+        if (activeRef.current && jumpElapsed.current < 0 && slideElapsed.current < 0 && performance.now() >= slideAvailableAt.current) {
+          slideElapsed.current = 0
+          animationState.current = 'SLIDE'
+          slideAvailableAt.current = performance.now() + RUNNER_CONFIG.slideCooldown * 1000
+        }
+      },
     }
     return () => { commands.current = null }
   }, [commands])
@@ -169,17 +239,38 @@ function RunnerController({ active, commands, onDistance, playerZRef }: { active
       if (slideElapsed.current / RUNNER_CONFIG.slideDuration >= 1) slideElapsed.current = -1
     }
     const isSliding = slideElapsed.current >= 0
-    animationState.current = jumpElapsed.current >= 0 ? 'JUMP' : isSliding ? 'SLIDE' : Math.abs(laneX.current - targetX) > .02 ? 'LANE_CHANGE' : 'RUN'
-    // TEMPORARY RUN ANIMATION: procedural feedback until approved run frames are supplied.
-    if (animationState.current === 'RUN' || animationState.current === 'LANE_CHANGE') runCycle.current += delta * RUNNER_CONFIG.runSpeed * RUNNER_CONFIG.runAnimationRatePerSpeed
-    const runRhythm = Math.sin(runCycle.current)
-    const runBob = animationState.current === 'RUN' || animationState.current === 'LANE_CHANGE' ? Math.abs(runRhythm) * RUNNER_CONFIG.runAnimationBobHeight : 0
-    if (visualRef.current) {
-      visualRef.current.position.set(laneX.current + (animationState.current === 'RUN' ? runRhythm * .018 : 0), jumpY + runBob, playerZRef.current)
-      visualRef.current.scale.set(1.08 + (animationState.current === 'RUN' ? runRhythm * .018 : 0), isSliding ? .68 : 1, 1)
-      visualRef.current.rotation.set(isSliding ? .12 : 0, 0, animationState.current === 'RUN' ? runRhythm * .018 : 0)
+    const laneIsMoving = Math.abs(laneX.current - targetX) > .02
+    if (!laneIsMoving) laneState.current = null
+    // Priority: JUMP > SLIDE > lane change > RUN. Inputs and motion share this controller.
+    animationState.current = jumpElapsed.current >= 0 ? 'JUMP' : isSliding ? 'SLIDE' : laneIsMoving && laneState.current ? laneState.current : 'RUN'
+    const hasRunRhythm = animationState.current === 'RUN' || laneIsMoving
+    if (hasRunRhythm) {
+      runCycle.current += delta * RUNNER_CONFIG.runSpeed * RUNNER_CONFIG.runCycleHzPerSpeed * Math.PI * 2
+      runFrame.current = Math.floor((runCycle.current / (Math.PI * 2)) * ZELDA_RUN_FRAMES.length) % ZELDA_RUN_FRAMES.length
     }
-    if (shadowRef.current) shadowRef.current.position.set(laneX.current, 0, playerZRef.current)
+    const runRhythm = Math.sin(runCycle.current)
+    const strideLift = Math.abs(runRhythm)
+    const runBob = hasRunRhythm ? strideLift * RUNNER_CONFIG.runAnimationBobHeight : 0
+    const runStep = Math.floor(runCycle.current / Math.PI)
+    if (runStep !== lastRunStep.current && (animationState.current === 'RUN' || laneIsMoving)) {
+      lastRunStep.current = runStep
+      // Future onRunStep() hook: attach footstep audio, dust, or surface effects here.
+    }
+    if (visualRef.current) {
+      const rhythmX = hasRunRhythm ? runRhythm * RUNNER_CONFIG.runAnimationSway : 0
+      const rhythmTilt = hasRunRhythm ? runRhythm * RUNNER_CONFIG.runAnimationTilt : 0
+      const strideScale = hasRunRhythm ? strideLift * RUNNER_CONFIG.runAnimationStrideScale : 0
+      // The pose is bottom-center anchored, so this compression and lift read as
+      // alternating strides without changing the gameplay collision footprint.
+      visualRef.current.position.set(laneX.current + rhythmX, jumpY + runBob, playerZRef.current)
+      visualRef.current.scale.set(RUNNER_CONFIG.characterScale * 1.08 + strideScale, RUNNER_CONFIG.characterScale - strideScale * .55, 1)
+      visualRef.current.rotation.set(isSliding ? .06 : 0, hasRunRhythm ? runRhythm * .018 : 0, animationState.current === 'LANE_LEFT' ? .045 : animationState.current === 'LANE_RIGHT' ? -.045 : rhythmTilt)
+    }
+    if (shadowRef.current) {
+      shadowRef.current.position.set(laneX.current, 0, playerZRef.current)
+      const shadowScale = 1 - (hasRunRhythm ? strideLift * RUNNER_CONFIG.runAnimationShadowPulse : 0) - jumpY * .1
+      shadowRef.current.scale.set(Math.max(.62, shadowScale), Math.max(.62, shadowScale), 1)
+    }
     const smooth = Math.min(1, delta * RUNNER_CONFIG.cameraSmoothing)
     camera.position.x += (laneX.current - camera.position.x) * smooth
     camera.position.z += (playerZRef.current + 7.15 - camera.position.z) * smooth
@@ -188,7 +279,7 @@ function RunnerController({ active, commands, onDistance, playerZRef }: { active
     const nextDistance = Math.floor(distance.current)
     if (nextDistance !== reportedDistance.current) { reportedDistance.current = nextDistance; onDistance(nextDistance) }
   })
-  return <ZeldaBillboard visualRef={visualRef} shadowRef={shadowRef} />
+  return <ZeldaBillboard visualRef={visualRef} shadowRef={shadowRef} animationStateRef={animationState} runFrameRef={runFrame} />
 }
 
 function World({ active, commands, onDistance }: { active: boolean; commands: MutableRefObject<RunnerCommands | null>; onDistance: (distance: number) => void }) {

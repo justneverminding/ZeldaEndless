@@ -11,12 +11,19 @@ export const RUNNER_CONFIG = {
   runSpeed: 7.2,
   laneOffset: 2.4,
   laneChangeSpeed: 10,
+  // Slightly reduce Zelda's overall in-world presence without moving her feet.
+  characterScale: .92,
   jumpHeight: 1.15,
   jumpDuration: .58,
   slideDuration: .42,
   slideCooldown: .28,
   inputCooldown: .16,
   cameraSmoothing: 7,
-  runAnimationRatePerSpeed: 1.5,
-  runAnimationBobHeight: .055,
+  // Four-frame run cycle, with restrained secondary motion layered on top.
+  runCycleHzPerSpeed: .26,
+  runAnimationBobHeight: .035,
+  runAnimationSway: .015,
+  runAnimationTilt: .014,
+  runAnimationStrideScale: .012,
+  runAnimationShadowPulse: .06,
 } as const
