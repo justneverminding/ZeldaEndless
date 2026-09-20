@@ -6,3 +6,13 @@ export const GAME_CONFIG = {
   mobileBreakpoint: 720,
   debugMode: false,
 } as const
+
+export const RUNNER_CONFIG = {
+  runSpeed: 7.2,
+  laneOffset: 2.4,
+  laneChangeSpeed: 10,
+  jumpHeight: 1.15,
+  jumpDuration: .58,
+  inputCooldown: .16,
+  cameraSmoothing: 7,
+} as const

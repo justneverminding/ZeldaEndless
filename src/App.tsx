@@ -17,5 +17,5 @@ export function App() {
   if (state === 'BOOT') return <div className="boot-screen" aria-label="Loading Zelda Thistle"><span>✦</span></div>
   if (state === 'HOME') return <HomeScene onPlay={enterPlay} onLeaderboard={() => setState('LEADERBOARD')} onSettings={() => setState('SETTINGS')} />
   if (state === 'LEADERBOARD' || state === 'SETTINGS') return <MenuScene state={state} onHome={() => setState('HOME')} />
-  return <><Suspense fallback={<div className="boot-screen" aria-label="Preparing forest"><span>✦</span></div>}><GameplayScene onPause={togglePause} touchEnabled={input.hasTouch} /></Suspense>{(state === 'PAUSED' || state === 'GAME_OVER') && <OverlayScene state={state} onResume={togglePause} onRestart={enterPlay} onHome={() => setState('HOME')} onLeaderboard={() => setState('LEADERBOARD')} />}</>
+  return <><Suspense fallback={<div className="boot-screen" aria-label="Preparing forest"><span>✦</span></div>}><GameplayScene onPause={togglePause} touchEnabled={input.hasTouch} isRunning={state === 'PLAYING'} /></Suspense>{(state === 'PAUSED' || state === 'GAME_OVER') && <OverlayScene state={state} onResume={togglePause} onRestart={enterPlay} onHome={() => setState('HOME')} onLeaderboard={() => setState('LEADERBOARD')} />}</>
 }
