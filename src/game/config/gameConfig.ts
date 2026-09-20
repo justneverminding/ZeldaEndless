@@ -13,6 +13,10 @@ export const RUNNER_CONFIG = {
   laneChangeSpeed: 10,
   jumpHeight: 1.15,
   jumpDuration: .58,
+  slideDuration: .42,
+  slideCooldown: .28,
   inputCooldown: .16,
   cameraSmoothing: 7,
+  runAnimationRatePerSpeed: 1.5,
+  runAnimationBobHeight: .055,
 } as const

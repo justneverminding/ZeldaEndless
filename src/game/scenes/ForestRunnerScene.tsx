@@ -3,7 +3,7 @@ import { Suspense, useEffect, useMemo, useRef, type MutableRefObject } from 'rea
 import { BackSide, CatmullRomCurve3, Color, Group, SRGBColorSpace, TextureLoader, Vector3 } from 'three'
 import zeldaRear from '../../../assets/characters/zelda/runtime/zelda-rear-hero-v2.png'
 import treeCard from '../../../assets/environments/whispering-forest/runtime/ancient-tree-billboard-v2.png'
-import { FOREST_RUN_SEGMENTS } from '../world/forestSegments'
+import { FOREST_RUN_SEGMENTS, FOREST_SEGMENT_LENGTH, VISIBLE_SEGMENTS_AHEAD, type ForestRunSegment } from '../world/forestSegments'
 import { RUNNER_CONFIG } from '../config/gameConfig'
 import type { RunnerCommands } from '../input/InputManager'
 
@@ -72,25 +72,42 @@ function ForestEdge({ z }: { z: number }) {
   </group>)}</group>
 }
 
-function Segment({ segment }: { segment: (typeof FOREST_RUN_SEGMENTS)[number] }) {
-  const left = segment.z + 4
-  return <group data-segment={segment.id}>
-    <mesh position={[0, -.18, segment.z]} receiveShadow><boxGeometry args={[13, .34, segment.length]} /><meshStandardMaterial color="#28503a" roughness={1} /></mesh>
-    <mesh position={[0, .01, segment.z]} receiveShadow><boxGeometry args={[7.8, .08, segment.length]} /><meshStandardMaterial color={segment.pathColor} roughness={.96} /></mesh>
-    {Array.from({ length: 16 }, (_, i) => <mesh key={`stone-${i}`} position={[Math.sin(i * 3.2) * 2.9, .08, segment.z - 10 + i * 1.25]} scale={[.08 + (i % 3) * .025, .025, .12 + (i % 2) * .035]} rotation={[0, i, .08]}><dodecahedronGeometry args={[1, 1]} /><meshStandardMaterial color={i % 2 ? '#ae9366' : '#6c5d45'} roughness={1} flatShading /></mesh>)}
-    <ForestCard x={-6.2} z={left} scale={segment.treeScale} /><ForestCard x={6.4} z={segment.z - 4} scale={segment.treeScale * .92} />
-    <Rock x={-4.7} z={segment.z - 2} scale={.75} /><Rock x={4.8} z={segment.z + 5} scale={.58} />
-    <Torch x={-4.15} z={segment.z - 5} /><Torch x={4.15} z={segment.z + 5} />
-    <TrailDressing z={segment.z} />
-    <ForestEdge z={segment.z} />
-    <Fence x={-5.45} z={segment.z + 7} /><Fence x={5.45} z={segment.z - 7} flip />
-    {segment.hasRuin && <RuinedArch z={segment.z - 7} />}
-    {segment.hasRuin && <><Ruin x={-5.2} z={segment.z - 5} height={3.8} /><Ruin x={5.4} z={segment.z + 4} height={3.2} /></>}
+function WorldSegment({ segment, initialZ, segmentRef }: { segment: ForestRunSegment; initialZ: number; segmentRef: (node: Group | null) => void }) {
+  return <group ref={segmentRef} position={[0, 0, initialZ]} data-segment={segment.id}>
+    <mesh position={[0, -.18, 0]} receiveShadow><boxGeometry args={[13, .34, segment.length]} /><meshStandardMaterial color="#28503a" roughness={1} /></mesh>
+    <mesh position={[0, .01, 0]} receiveShadow><boxGeometry args={[7.8, .08, segment.length]} /><meshStandardMaterial color={segment.pathColor} roughness={.96} /></mesh>
+    {Array.from({ length: 16 }, (_, i) => <mesh key={`stone-${i}`} position={[Math.sin(i * 3.2) * 2.9, .08, -10 + i * 1.25]} scale={[.08 + (i % 3) * .025, .025, .12 + (i % 2) * .035]} rotation={[0, i, .08]}><dodecahedronGeometry args={[1, 1]} /><meshStandardMaterial color={i % 2 ? '#ae9366' : '#6c5d45'} roughness={1} flatShading /></mesh>)}
+    <ForestCard x={-6.2} z={4} scale={segment.treeScale} /><ForestCard x={6.4} z={-4} scale={segment.treeScale * .92} />
+    <Rock x={-4.7} z={-2} scale={.75} /><Rock x={4.8} z={5} scale={.58} />
+    <Torch x={-4.15} z={-5} /><Torch x={4.15} z={5} />
+    <TrailDressing z={0} />
+    <ForestEdge z={0} />
+    <Fence x={-5.45} z={7} /><Fence x={5.45} z={-7} flip />
+    {segment.hasRuin && <RuinedArch z={-7} />}
+    {segment.hasRuin && <><Ruin x={-5.2} z={-5} height={3.8} /><Ruin x={5.4} z={4} height={3.2} /></>}
   </group>
 }
 
-function DistantWorld() {
-  return <group>
+function WorldSegmentPool({ playerZRef }: { playerZRef: MutableRefObject<number> }) {
+  const segmentPositions = useRef(Array.from({ length: VISIBLE_SEGMENTS_AHEAD }, (_, index) => -10 - index * FOREST_SEGMENT_LENGTH))
+  const segmentRefs = useRef<(Group | null)[]>([])
+  useFrame(() => {
+    let furthestAhead = Math.min(...segmentPositions.current)
+    segmentPositions.current.forEach((segmentZ, index) => {
+      if (segmentZ > playerZRef.current + FOREST_SEGMENT_LENGTH) {
+        furthestAhead -= FOREST_SEGMENT_LENGTH
+        segmentPositions.current[index] = furthestAhead
+        segmentRefs.current[index]?.position.setZ(furthestAhead)
+      }
+    })
+  })
+  return <>{segmentPositions.current.map((initialZ, index) => <WorldSegment key={index} segment={FOREST_RUN_SEGMENTS[index % FOREST_RUN_SEGMENTS.length]} initialZ={initialZ} segmentRef={node => { segmentRefs.current[index] = node }} />)}</>
+}
+
+function DistantWorld({ playerZRef }: { playerZRef: MutableRefObject<number> }) {
+  const backdropRef = useRef<Group | null>(null)
+  useFrame(() => { if (backdropRef.current) backdropRef.current.position.z = playerZRef.current })
+  return <group ref={backdropRef}>
     <mesh position={[0, 18, -42]}><sphereGeometry args={[84, 32, 18]} /><meshBasicMaterial color="#6f99ad" side={BackSide} /></mesh>
     <mesh position={[-13, 18, -45]} scale={[7, 1.4, 1]}><sphereGeometry args={[1, 16, 10]} /><meshBasicMaterial color="#d7e8e6" transparent opacity={.3} /></mesh>
     <mesh position={[12, 15, -47]} scale={[9, 1.2, 1]}><sphereGeometry args={[1, 16, 10]} /><meshBasicMaterial color="#d7e8e6" transparent opacity={.24} /></mesh>
@@ -103,24 +120,33 @@ function DistantWorld() {
   </group>
 }
 
-function RunnerController({ active, commands, onDistance }: { active: boolean; commands: MutableRefObject<RunnerCommands | null>; onDistance: (distance: number) => void }) {
+type RunnerAnimationState = 'IDLE' | 'RUN' | 'JUMP' | 'SLIDE' | 'LANE_CHANGE'
+
+function RunnerController({ active, commands, onDistance, playerZRef }: { active: boolean; commands: MutableRefObject<RunnerCommands | null>; onDistance: (distance: number) => void; playerZRef: MutableRefObject<number> }) {
   const { camera } = useThree()
   const visualRef = useRef<Group | null>(null)
   const shadowRef = useRef<Group | null>(null)
   const lane = useRef(1)
   const laneX = useRef(0)
-  const z = useRef(1.65)
   const distance = useRef(0)
   const reportedDistance = useRef(-1)
   const jumpElapsed = useRef(-1)
+  const slideElapsed = useRef(-1)
+  const slideAvailableAt = useRef(0)
+  const activeRef = useRef(active)
   const cooldownUntil = useRef(0)
+  const runCycle = useRef(0)
+  const animationState = useRef<RunnerAnimationState>('IDLE')
   const target = useMemo(() => new Vector3(), [])
+
+  useEffect(() => { activeRef.current = active }, [active])
 
   useEffect(() => {
     commands.current = {
-      moveLeft: () => { if (performance.now() >= cooldownUntil.current && lane.current > 0) { lane.current -= 1; cooldownUntil.current = performance.now() + RUNNER_CONFIG.inputCooldown * 1000 } },
-      moveRight: () => { if (performance.now() >= cooldownUntil.current && lane.current < 2) { lane.current += 1; cooldownUntil.current = performance.now() + RUNNER_CONFIG.inputCooldown * 1000 } },
-      jump: () => { if (jumpElapsed.current < 0) jumpElapsed.current = 0 },
+      moveLeft: () => { if (activeRef.current && performance.now() >= cooldownUntil.current && lane.current > 0) { lane.current -= 1; cooldownUntil.current = performance.now() + RUNNER_CONFIG.inputCooldown * 1000 } },
+      moveRight: () => { if (activeRef.current && performance.now() >= cooldownUntil.current && lane.current < 2) { lane.current += 1; cooldownUntil.current = performance.now() + RUNNER_CONFIG.inputCooldown * 1000 } },
+      jump: () => { if (activeRef.current && jumpElapsed.current < 0 && slideElapsed.current < 0) jumpElapsed.current = 0 },
+      slide: () => { if (activeRef.current && jumpElapsed.current < 0 && slideElapsed.current < 0 && performance.now() >= slideAvailableAt.current) { slideElapsed.current = 0; slideAvailableAt.current = performance.now() + RUNNER_CONFIG.slideCooldown * 1000 } },
     }
     return () => { commands.current = null }
   }, [commands])
@@ -128,7 +154,7 @@ function RunnerController({ active, commands, onDistance }: { active: boolean; c
   useFrame((_, delta) => {
     if (!active) return
     distance.current += RUNNER_CONFIG.runSpeed * delta
-    z.current -= RUNNER_CONFIG.runSpeed * delta
+    playerZRef.current -= RUNNER_CONFIG.runSpeed * delta
     const targetX = (lane.current - 1) * RUNNER_CONFIG.laneOffset
     laneX.current += (targetX - laneX.current) * Math.min(1, delta * RUNNER_CONFIG.laneChangeSpeed)
     let jumpY = 0
@@ -138,12 +164,26 @@ function RunnerController({ active, commands, onDistance }: { active: boolean; c
       jumpY = Math.sin(Math.PI * t) * RUNNER_CONFIG.jumpHeight
       if (t >= 1) jumpElapsed.current = -1
     }
-    if (visualRef.current) visualRef.current.position.set(laneX.current, jumpY, z.current)
-    if (shadowRef.current) shadowRef.current.position.set(laneX.current, 0, z.current)
+    if (slideElapsed.current >= 0) {
+      slideElapsed.current += delta
+      if (slideElapsed.current / RUNNER_CONFIG.slideDuration >= 1) slideElapsed.current = -1
+    }
+    const isSliding = slideElapsed.current >= 0
+    animationState.current = jumpElapsed.current >= 0 ? 'JUMP' : isSliding ? 'SLIDE' : Math.abs(laneX.current - targetX) > .02 ? 'LANE_CHANGE' : 'RUN'
+    // TEMPORARY RUN ANIMATION: procedural feedback until approved run frames are supplied.
+    if (animationState.current === 'RUN' || animationState.current === 'LANE_CHANGE') runCycle.current += delta * RUNNER_CONFIG.runSpeed * RUNNER_CONFIG.runAnimationRatePerSpeed
+    const runRhythm = Math.sin(runCycle.current)
+    const runBob = animationState.current === 'RUN' || animationState.current === 'LANE_CHANGE' ? Math.abs(runRhythm) * RUNNER_CONFIG.runAnimationBobHeight : 0
+    if (visualRef.current) {
+      visualRef.current.position.set(laneX.current + (animationState.current === 'RUN' ? runRhythm * .018 : 0), jumpY + runBob, playerZRef.current)
+      visualRef.current.scale.set(1.08 + (animationState.current === 'RUN' ? runRhythm * .018 : 0), isSliding ? .68 : 1, 1)
+      visualRef.current.rotation.set(isSliding ? .12 : 0, 0, animationState.current === 'RUN' ? runRhythm * .018 : 0)
+    }
+    if (shadowRef.current) shadowRef.current.position.set(laneX.current, 0, playerZRef.current)
     const smooth = Math.min(1, delta * RUNNER_CONFIG.cameraSmoothing)
     camera.position.x += (laneX.current - camera.position.x) * smooth
-    camera.position.z += (z.current + 7.15 - camera.position.z) * smooth
-    target.set(laneX.current, .72 + jumpY * .08, z.current - 19.65)
+    camera.position.z += (playerZRef.current + 7.15 - camera.position.z) * smooth
+    target.set(laneX.current, .72 + jumpY * .08, playerZRef.current - 19.65)
     camera.lookAt(target)
     const nextDistance = Math.floor(distance.current)
     if (nextDistance !== reportedDistance.current) { reportedDistance.current = nextDistance; onDistance(nextDistance) }
@@ -152,12 +192,13 @@ function RunnerController({ active, commands, onDistance }: { active: boolean; c
 }
 
 function World({ active, commands, onDistance }: { active: boolean; commands: MutableRefObject<RunnerCommands | null>; onDistance: (distance: number) => void }) {
+  const playerZRef = useRef(1.65)
   return <>
     <color attach="background" args={[new Color('#6f98a5')]} /><fogExp2 attach="fog" args={['#6f98a5', .021]} />
     <hemisphereLight args={['#d0edf0', '#173225', 1.9]} /><ambientLight color="#b3d2c3" intensity={.38} /><directionalLight position={[-9, 14, 7]} color="#fff0c8" intensity={2.1} castShadow />
-    <DistantWorld />
-    {FOREST_RUN_SEGMENTS.map(segment => <Segment key={segment.id} segment={segment} />)}
-    <RunnerController active={active} commands={commands} onDistance={onDistance} />
+    <DistantWorld playerZRef={playerZRef} />
+    <WorldSegmentPool playerZRef={playerZRef} />
+    <RunnerController active={active} commands={commands} onDistance={onDistance} playerZRef={playerZRef} />
   </>
 }
 

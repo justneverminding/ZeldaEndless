@@ -12,6 +12,6 @@ export function GameplayScene({ onPause, touchEnabled, isRunning }: Props) {
   return <main ref={surface} className="game-scene scene" aria-label="Gameplay forest run">
     <ForestRunnerScene active={isRunning} commands={commands} onDistance={(next) => setDistance(current => current === next ? current : next)} />
     <header className="game-hud"><div className="health-placeholder"><span>✦</span><div><small>HEALTH</small><b /></div></div><div className="run-stats"><span>SCORE <b>0</b></span><span>DISTANCE <b>{distance}m</b></span></div><button className="icon-button" onClick={onPause} aria-label="Pause game">Ⅱ</button></header>
-    {touchEnabled && <div className="touch-gesture-hint" aria-hidden="true">Swipe to move · Swipe up to jump</div>}
+    {touchEnabled && <div className="touch-gesture-hint" aria-hidden="true">Swipe left/right to move · Up to jump · Down to slide</div>}
   </main>
 }
